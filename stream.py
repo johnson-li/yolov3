@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 from __future__ import division
 
 from models import *
@@ -10,10 +12,15 @@ import time
 import struct
 import datetime
 import argparse
+import asyncio
+import json
+import multiprocessing
+import threading
 
 from PIL import Image
 
 import torch
+import socket
 from torch.utils.data import DataLoader
 from torchvision import datasets
 from torch.autograd import Variable
@@ -21,7 +28,8 @@ from torch.autograd import Variable
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.ticker import NullLocator
-from multiprocessing import shared_memory
+from multiprocessing import shared_memory, Process, Manager
+from multiprocessing.managers import SyncManager
 
 from PIL import Image
 
@@ -41,6 +49,7 @@ CLASS_PATH = 'data/coco.names'
 CLASSES = None
 
 def init_yolo():
+    print('Init yolo')
     global CLASSES
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print('Device: %s' % device)
@@ -88,13 +97,16 @@ def process_image(model, index, data, width, height, timestamp):
     for detection in detections :
         if detection is not None:
             detection = rescale_boxes(detection, IMAGE_SIZE, [height, width])
-            for x1, y1, x2, y2, conf, cls_conf, cls_pred in detection:
+            for detc in detection:
+                x1, y1, x2, y2, conf, cls_conf, cls_pred = detc
                 print("\t+ Label: %s, Conf: %.5f at [%dx%d - %dx%d]" % (CLASSES[int(cls_pred)], cls_conf.item(), x1, y1, x2, y2))
+                on_result(detc)
         else:
             print('Nothing is detected')
 
 
 def read_shared_mem(model):
+    print('Read shared memory')
     shm = shared_memory.SharedMemory(name='/webrtc_frames', create=False)
     assert shm.size == BUFFER_SIZE
 
@@ -123,11 +135,76 @@ def read_shared_mem(model):
             if frame_info[5] == 1: # check the finished tag
                 offset = frame_info[0]
                 length = frame_info[1]
-                process_image(model, index, bytes(shm.buf[CONTENT_OFFSET + offset : CONTENT_OFFSET + offset + length]), *frame_info[2:5])
+                process_image(model, index,
+                        bytes(shm.buf[CONTENT_OFFSET + offset: CONTENT_OFFSET + offset + length]),
+                        *frame_info[2:5])
                 index += 1
     shm.close()
 
 
-if __name__ == "__main__":
+def on_result(result):
+    result = json.dumps(result.cpu().detach().numpy().tolist())
+    print('Result: %s' % (result, ))
+    #loop = asyncio.get_event_loop()
+    #loop.run_until_complete(adapter.on_result(result))
+    #asyncio.get_running_loop().create_task(async lambda: await on_result(detc))
+
+
+class ServerProtocol:
+    def __init__(self):
+        self.port = 4400
+
+    def connection_made(self, transport):
+        self.transport = transport
+
+    def connection_lost(self, transport):
+        pass
+
+    def on_result(self, result):
+        print(CLIENTS)
+        for client in CLIENTS.keys():
+            print('Send result to: %s' % (client, ))
+            self.transport.sendto(result.encode(), client)
+
+    def datagram_received(self, data, addr):
+        message = data.decode()
+        #print('Received %d bytes from %s' % (len(data), addr))
+        print(self)
+        if addr not in CLIENTS:
+            print("Register new client: %s" % (addr, ))
+            CLIENTS[addr] = 1
+        print(CLIENTS)
+
+
+SERVER_PROTOCOL = ServerProtocol()
+CLIENTS = Manager().dict()
+SERVER_BARRIER = multiprocessing.Barrier(2)
+
+
+async def start_udp_server():
+    print('Starting UDP server')
+    loop = asyncio.get_running_loop()
+    transport, _ = await loop.create_datagram_endpoint(lambda: SERVER_PROTOCOL, local_addr=('127.0.0.1', SERVER_PROTOCOL.port))
+    try:
+        await asyncio.sleep(5)
+        SERVER_BARRIER.wait()
+        await asyncio.sleep(3600)  # Serve for 1 hour.
+    finally:
+        transport.close()
+
+
+def object_detection():
     model = init_yolo()
+    SERVER_BARRIER.wait()
     read_shared_mem(model)
+
+
+def main():
+    process = Process(target=object_detection)
+    process.start()
+    asyncio.run(start_udp_server())
+    process.join()
+
+
+if __name__ == "__main__":
+    main()
