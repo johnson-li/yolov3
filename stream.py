@@ -44,9 +44,11 @@ IMAGE_SIZE = 416
 CONF_THRES = .8
 NMS_THRES = .4
 CLASS_PATH = 'data/coco.names'
-
-
 CLASSES = None
+CLIENTS = Manager().dict()
+SERVER_BARRIER = multiprocessing.Barrier(2)
+UNIX_SOCKET_NAME = '/tmp/yolo_stream'
+
 
 def init_yolo():
     print('Init yolo')
@@ -65,7 +67,6 @@ def save_image(tensor, path='test.jpg'):
     tensor *= 255
     bytes = tensor.cpu().byte().numpy()
     bytes = np.rollaxis(bytes, 0, 3).copy()
-    print(bytes.shape)
     img = Image.frombuffer('RGB', [width, height], bytes)
     img.save(path)
 
@@ -100,7 +101,7 @@ def process_image(model, index, data, width, height, timestamp):
             for detc in detection:
                 x1, y1, x2, y2, conf, cls_conf, cls_pred = detc
                 print("\t+ Label: %s, Conf: %.5f at [%dx%d - %dx%d]" % (CLASSES[int(cls_pred)], cls_conf.item(), x1, y1, x2, y2))
-                on_result(detc)
+                on_result({'detection': detc.cpu().detach().numpy().tolist()})
         else:
             print('Nothing is detected')
 
@@ -143,14 +144,13 @@ def read_shared_mem(model):
 
 
 def on_result(result):
-    result = json.dumps(result.cpu().detach().numpy().tolist())
-    print('Result: %s' % (result, ))
-    #loop = asyncio.get_event_loop()
-    #loop.run_until_complete(adapter.on_result(result))
-    #asyncio.get_running_loop().create_task(async lambda: await on_result(detc))
+    result = json.dumps(result)
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.connect(UNIX_SOCKET_NAME)
+    sock.send(result.encode())
 
 
-class ServerProtocol:
+class UdpServerProtocol:
     def __init__(self):
         self.port = 4400
 
@@ -161,42 +161,50 @@ class ServerProtocol:
         pass
 
     def on_result(self, result):
-        print(CLIENTS)
         for client in CLIENTS.keys():
-            print('Send result to: %s' % (client, ))
+            print('Send result to: %s, result: %s' % (client, result))
             self.transport.sendto(result.encode(), client)
 
     def datagram_received(self, data, addr):
         message = data.decode()
-        #print('Received %d bytes from %s' % (len(data), addr))
-        print(self)
         if addr not in CLIENTS:
             print("Register new client: %s" % (addr, ))
             CLIENTS[addr] = 1
-        print(CLIENTS)
 
 
-SERVER_PROTOCOL = ServerProtocol()
-CLIENTS = Manager().dict()
-SERVER_BARRIER = multiprocessing.Barrier(2)
+class UnixServerProtocol(asyncio.BaseProtocol):
+    def connection_made(self, transport):
+        self._transport = transport
+
+    def data_received(self, data):
+        data = data.decode().strip()
+        SERVER_PROTOCOL.on_result(data)
+
+    def eof_received(self):
+        pass
 
 
 async def start_udp_server():
     print('Starting UDP server')
     loop = asyncio.get_running_loop()
-    transport, _ = await loop.create_datagram_endpoint(lambda: SERVER_PROTOCOL, local_addr=('127.0.0.1', SERVER_PROTOCOL.port))
+    transport1, _ = await loop.create_datagram_endpoint(lambda: SERVER_PROTOCOL, local_addr=('127.0.0.1', SERVER_PROTOCOL.port))
+    unix_server = await loop.create_unix_server(UnixServerProtocol, path=UNIX_SOCKET_NAME)
     try:
         await asyncio.sleep(5)
         SERVER_BARRIER.wait()
         await asyncio.sleep(3600)  # Serve for 1 hour.
     finally:
-        transport.close()
+        transport1.close()
+        unix_server.close()
 
 
 def object_detection():
     model = init_yolo()
     SERVER_BARRIER.wait()
     read_shared_mem(model)
+
+
+SERVER_PROTOCOL = UdpServerProtocol()
 
 
 def main():
