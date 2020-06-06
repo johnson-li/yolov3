@@ -108,7 +108,13 @@ def process_image(model, index, data, width, height, timestamp):
 
 def read_shared_mem(model):
     print('Read shared memory')
-    shm = shared_memory.SharedMemory(name='/webrtc_frames', create=False)
+    while True:
+        try:
+            shm = shared_memory.SharedMemory(name='/webrtc_frames', create=False)
+            break
+        except:
+            print("The shared memory is not ready, sleep 1s")
+            time.sleep(1)
     assert shm.size == BUFFER_SIZE
 
     def get_size():
