@@ -187,7 +187,7 @@ class UnixServerProtocol(asyncio.BaseProtocol):
 async def start_udp_server():
     print('Starting UDP server')
     loop = asyncio.get_running_loop()
-    transport1, _ = await loop.create_datagram_endpoint(lambda: SERVER_PROTOCOL, local_addr=('127.0.0.1', SERVER_PROTOCOL.port))
+    transport1, _ = await loop.create_datagram_endpoint(lambda: SERVER_PROTOCOL, local_addr=('0.0.0.0', SERVER_PROTOCOL.port))
     unix_server = await loop.create_unix_server(UnixServerProtocol, path=UNIX_SOCKET_NAME)
     try:
         await asyncio.sleep(5)
