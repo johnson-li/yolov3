@@ -99,9 +99,12 @@ def process_image(model, index, data, width, height, timestamp, frame_sequence):
         if detection is not None:
             detection = rescale_boxes2(detection, IMAGE_SIZE, [height, width])
             for detc in detection:
-                x1, y1, x2, y2, conf, cls_conf, cls_pred = detc
-                print("\t+ Label: %s, Conf: %.5f at [%dx%d - %dx%d]" % (CLASSES[int(cls_pred)], cls_conf.item(), x1, y1, x2, y2))
-                on_result({'frame_sequence': frame_sequence, 'frame_timestamp': timestamp, 'yolo_timestamp': time.time(), 'detection': detc.cpu().detach().numpy().tolist()})
+                x1, y1, x2, y2, conf, cls_conf, cls_pred = detc.cpu().detach().numpy().tolist()
+                print("\t+ Label: %s, Conf: %.5f at [%dx%d - %dx%d]" % (CLASSES[int(cls_pred)], cls_conf, x1, y1, x2, y2))
+                # on_result({'frame_sequence': frame_sequence, 'frame_timestamp': timestamp, 'yolo_timestamp': time.time(), 'detection': detc.cpu().detach().numpy().tolist()})
+                on_result({'frame_sequence': frame_sequence, 'frame_timestamp': timestamp, 'yolo_timestamp': time.time(), 'detection': {
+                    'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2, 'conf': conf, 'cls_conf': cls_conf, 'cls_pred': cls_pred, 'cls_pred_name': CLASSES[int(cls_pred)]
+                    }})
         else:
             print('Nothing is detected')
 
