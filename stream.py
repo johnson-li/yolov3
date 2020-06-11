@@ -102,7 +102,7 @@ def process_image(model, index, data, width, height, timestamp, frame_sequence):
                 x1, y1, x2, y2, conf, cls_conf, cls_pred = detc.cpu().detach().numpy().tolist()
                 print("\t+ Label: %s, Conf: %.5f at [%dx%d - %dx%d]" % (CLASSES[int(cls_pred)], cls_conf, x1, y1, x2, y2))
                 # on_result({'frame_sequence': frame_sequence, 'frame_timestamp': timestamp, 'yolo_timestamp': time.time(), 'detection': detc.cpu().detach().numpy().tolist()})
-                on_result({'frame_sequence': frame_sequence, 'frame_timestamp': timestamp, 'yolo_timestamp': time.time(), 'detection': {
+                on_result({'frame_sequence': frame_sequence, 'frame_timestamp': timestamp, 'yolo_timestamp': time.clock_gettime(time.CLOCK_MONOTONIC), 'detection': {
                     'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2, 'conf': conf, 'cls_conf': cls_conf, 'cls_pred': cls_pred, 'cls_pred_name': CLASSES[int(cls_pred)]
                     }})
         else:
