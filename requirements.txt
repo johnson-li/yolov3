@@ -4,3 +4,4 @@ torchvision
 matplotlib
 tensorflow
 pillow
+tqdm==4.46.1

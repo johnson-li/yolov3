@@ -92,12 +92,12 @@ def process_image(model, index, data, width, height, timestamp, frame_sequence):
     image = torch.Tensor(data).type(Tensor) / 255
     image, _ = pad_to_square(image, 0)
     image = resize(image, IMAGE_SIZE)
-    #save_image(image)
+    # save_image(image)
     detections = model(image.unsqueeze(0))
     detections = non_max_suppression(detections, CONF_THRES, NMS_THRES)
     for detection in detections :
         if detection is not None:
-            detection = rescale_boxes(detection, IMAGE_SIZE, [height, width])
+            detection = rescale_boxes2(detection, IMAGE_SIZE, [height, width])
             for detc in detection:
                 x1, y1, x2, y2, conf, cls_conf, cls_pred = detc
                 print("\t+ Label: %s, Conf: %.5f at [%dx%d - %dx%d]" % (CLASSES[int(cls_pred)], cls_conf.item(), x1, y1, x2, y2))
