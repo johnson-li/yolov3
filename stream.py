@@ -35,7 +35,7 @@ from PIL import Image
 
 
 FRAMES_SIZE = 128
-INDEX_SIZE = 20
+INDEX_SIZE = 24
 HEADER_SIZE = 8
 BUFFER_SIZE = 100 * 1024 * 1024
 CONTENT_OFFSET = 4096
@@ -83,8 +83,8 @@ def log_time(name):
 
 
 @log_time("Process image")
-def process_image(model, index, data, width, height, timestamp):
-    print("Process image #%d of size (%dx%d) captured at %d" % (index, width, height, timestamp))
+def process_image(model, index, data, width, height, timestamp, frame_sequence):
+    print("Process image #%d[%d] of size (%dx%d) captured at %d" % (index, frame_sequence, width, height, timestamp))
     data = np.frombuffer(data, dtype=np.uint8).reshape((height, width, -1))
     data = data[:, :, [2, 1, 0]]
     data = np.rollaxis(data, 2)
@@ -101,7 +101,7 @@ def process_image(model, index, data, width, height, timestamp):
             for detc in detection:
                 x1, y1, x2, y2, conf, cls_conf, cls_pred = detc
                 print("\t+ Label: %s, Conf: %.5f at [%dx%d - %dx%d]" % (CLASSES[int(cls_pred)], cls_conf.item(), x1, y1, x2, y2))
-                on_result({'detection': detc.cpu().detach().numpy().tolist()})
+                on_result({'frame_sequence': frame_sequence, 'timestamp': time.time(), 'detection': detc.cpu().detach().numpy().tolist()})
         else:
             print('Nothing is detected')
 
@@ -124,7 +124,7 @@ def read_shared_mem(model):
         return struct.unpack('I', bytes(shm.buf[:4]))[0]
 
     def get_frame_info(i):
-        return struct.unpack('IIHHIi', bytes(shm.buf[HEADER_SIZE + i * INDEX_SIZE : HEADER_SIZE + (i + 1) * INDEX_SIZE]))
+        return struct.unpack('IIHHIIi', bytes(shm.buf[HEADER_SIZE + i * INDEX_SIZE : HEADER_SIZE + (i + 1) * INDEX_SIZE]))
 
     size = get_size()
     print("Number of frames: %d" % size)
@@ -132,19 +132,17 @@ def read_shared_mem(model):
     while True:
         if index < get_size():
             i = index % FRAMES_SIZE
-            frame_info = get_frame_info(i)
+            offset, length, width, height, timestamp, frame_sequence, finished = get_frame_info(i)
             if get_size() > index:
-                frame_info_next = get_frame_info((i + 1) % FRAMES_SIZE)
-                if frame_info_next[5] == 1:
-                    print('New frame is ready, skip frame #%d, captured at %d' % (index, frame_info_next[4]))
+                _, _, _, _, next_timestamp, next_frame_sequence, next_finished = get_frame_info((i + 1) % FRAMES_SIZE)
+                if next_finished == 1:
+                    print('New frame is ready, skip frame #%d[%d], captured at %d' % (index, next_frame_sequence, next_timestamp))
                     index += 1
                     continue
-            if frame_info[5] == 1: # check the finished tag
-                offset = frame_info[0]
-                length = frame_info[1]
+            if finished == 1: # check the finished tag
                 process_image(model, index,
                         bytes(shm.buf[CONTENT_OFFSET + offset: CONTENT_OFFSET + offset + length]),
-                        *frame_info[2:5])
+                        width, height, timestamp, frame_sequence)
                 index += 1
     shm.close()
 
