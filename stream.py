@@ -101,7 +101,7 @@ def process_image(model, index, data, width, height, timestamp, frame_sequence):
             for detc in detection:
                 x1, y1, x2, y2, conf, cls_conf, cls_pred = detc
                 print("\t+ Label: %s, Conf: %.5f at [%dx%d - %dx%d]" % (CLASSES[int(cls_pred)], cls_conf.item(), x1, y1, x2, y2))
-                on_result({'frame_sequence': frame_sequence, 'timestamp': time.time(), 'detection': detc.cpu().detach().numpy().tolist()})
+                on_result({'frame_sequence': frame_sequence, 'frame_timestamp': timestamp, 'yolo_timestamp': time.time(), 'detection': detc.cpu().detach().numpy().tolist()})
         else:
             print('Nothing is detected')
 
